@@ -9,9 +9,15 @@
 # Once the dyno has is 'up' you can open your browser and navigate
 # this dyno's directory structure to download the nginx binary.
 
-NGINX_VERSION=${NGINX_VERSION-1.17.8}
+temp_dir=/buildpack/build
+mkdir $temp_dir
+
+cd $temp_dir
+echo "Temp dir: $temp_dir"
+
+NGINX_VERSION=${NGINX_VERSION-1.19.6}
 PCRE_VERSION=${PCRE_VERSION-8.37}
-NPS_VERSION=${NGINX_PAGE_SPEED_VERSION-1.13.35.2}
+NPS_VERSION=${NGINX_PAGE_SPEED_VERSION-1.13.35.2-stable}
 HEADERS_MORE_VERSION=${HEADERS_MORE_VERSION-0.261}
 ZLIB_VERSION=${ZLIB_VERSION-1.2.11}
 UUID4_VERSION=${UUID4_VERSION-master}
@@ -21,33 +27,37 @@ pcre_tarball_url=https://ftp.pcre.org/pub/pcre/pcre-${PCRE_VERSION}.tar.gz
 headers_more_nginx_module_url=https://github.com/openresty/headers-more-nginx-module/archive/v${HEADERS_MORE_VERSION}.tar.gz
 uuid4_url=https://github.com/cybozu/nginx-uuid4-module/archive/${UUID4_VERSION}.tar.gz
 zlib_url=http://zlib.net/zlib-${ZLIB_VERSION}.tar.gz
-psol_url=https://dl.google.com/dl/page-speed/psol/${NPS_VERSION}-x64.tar.gz
-
-temp_dir=$(mktemp -d /tmp/nginx.XXXXXXXXXX)
-
-cd $temp_dir
-echo "Temp dir: $temp_dir"
 
 echo "Downloading $nginx_tarball_url"
-curl -L $nginx_tarball_url | tar xzv
+curl -L $nginx_tarball_url | tar xz
 
 echo "Downloading $pcre_tarball_url"
-(cd nginx-${NGINX_VERSION} && curl -L $pcre_tarball_url | tar xvz )
+(cd nginx-${NGINX_VERSION} && curl -L $pcre_tarball_url | tar xz )
 
 echo "Downloading $headers_more_nginx_module_url"
-(cd nginx-${NGINX_VERSION} && curl -L $headers_more_nginx_module_url | tar xvz )
+(cd nginx-${NGINX_VERSION} && curl -L $headers_more_nginx_module_url | tar xz )
 
 echo "Downloading $zlib_url"
-(cd nginx-${NGINX_VERSION} && curl -L $zlib_url | tar xvz )
+(cd nginx-${NGINX_VERSION} && curl -L $zlib_url | tar xz )
 
 echo "Downloading $uuid4_url"
-(cd nginx-${NGINX_VERSION} && curl -L $uuid4_url | tar xvz )
+(cd nginx-${NGINX_VERSION} && curl -L $uuid4_url | tar xz )
 
 echo "Downloading $psol_url"
-(cd nginx-${NGINX_VERSION}/incubator-pagespeed-ngx-${NPS_VERSION}-stable && curl --silent -L $psol_url | tar xvz)
+pushd nginx-${NGINX_VERSION}
+curl -L  https://github.com/apache/incubator-pagespeed-ngx/archive/v${NPS_VERSION}.tar.gz | tar -xz
+nps_dir=$(find . -name "*pagespeed-ngx-${NPS_VERSION}" -type d)
+pushd "$nps_dir"
+NPS_RELEASE_NUMBER=${NPS_VERSION/-stable/}
+psol_url=https://dl.google.com/dl/page-speed/psol/${NPS_RELEASE_NUMBER}.tar.gz
+psol_url=$(scripts/format_binary_url.sh PSOL_BINARY_URL)
+popd
+popd
+
+(cd $temp_dir/nginx-${NGINX_VERSION}/incubator-pagespeed-ngx-${NPS_VERSION} && curl --silent -L $psol_url | tar xz)
 
 (
-  cd nginx-${NGINX_VERSION}
+  cd $temp_dir/nginx-${NGINX_VERSION}
   ./configure \
     --with-pcre=pcre-${PCRE_VERSION} \
     --with-zlib=zlib-${ZLIB_VERSION} \
@@ -56,12 +66,12 @@ echo "Downloading $psol_url"
     --with-http_ssl_module \
     --with-http_v2_module \
     --with-http_auth_request_module \
-    --prefix=/tmp/nginx \
+    --prefix=${temp_dir}/ \
     --add-module=${temp_dir}/nginx-${NGINX_VERSION}/headers-more-nginx-module-${HEADERS_MORE_VERSION} \
     --add-module=${temp_dir}/nginx-${NGINX_VERSION}/nginx-uuid4-module-${UUID4_VERSION} \
-    --add-module=${temp_dir}/nginx-${NGINX_VERSION}/incubator-pagespeed-ngx-${NPS_VERSION}-stable
-        
+    --add-module=${temp_dir}/nginx-${NGINX_VERSION}/incubator-pagespeed-ngx-${NPS_VERSION}
+
   make install
 )
 
-cp /tmp/nginx/sbin/nginx $1
+cp ${temp_dir}/sbin/nginx $1
